@@ -1,0 +1,63 @@
+# ============================================================
+# Configuración del Bot de Morse para Mastodon
+# Edita este fichero para cambiar el comportamiento del bot
+# sin tocar el código.
+# ============================================================
+
+contenido:
+  fuente: tmdb                # de momento solo "tmdb"
+  tipo: titulos                # en el futuro: titulos / actores / frases
+  generos:                     # géneros TMDb a incluir (nombres en inglés, como los usa la API)
+    - "Science Fiction"
+    - "Horror"
+  palabras_clave:               # keywords TMDb para afinar el filtro "friki/culto"
+    - "cult film"
+  decadas: []                   # vacío = todas las épocas. Ej: [1930, 1980, 2020]
+  excluir_nyñ: true              # excluir títulos con Ñ
+  excluir_acentos: true          # excluir títulos con acentos/diacríticos
+  excluir_puntuacion: true       # de momento, sin signos de puntuación en morse
+  min_longitud: 3                # longitud mínima del título (en caracteres, sin espacios)
+  max_longitud: 22               # longitud máxima del título
+
+niveles:
+  # Cada nivel añade letras nuevas. El contenido del día se elige
+  # según qué letras estén "desbloqueadas" hasta la fecha.
+  - id: 1
+    letras: ["E", "T", "A", "I", "N", "M", "S", "O"]
+  - id: 2
+    letras: ["H", "R", "D", "L", "U", "C", "W"]
+  - id: 3
+    letras: ["G", "B", "V", "F", "Y", "K", "P"]
+  - id: 4
+    letras: ["J", "X", "Q", "Z"]
+  - id: 5
+    # números, se desbloquean después de tener ya varias letras
+    letras: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+
+horario:
+  zona_horaria: "Europe/Madrid"
+  hora_leccion: "09:00"
+  hora_quiz: "18:00"
+
+audio:
+  wpm: 15                       # velocidad base en palabras por minuto (configurable)
+  wpm_por_nivel: {}              # opcional, ej: {1: 12, 2: 15, 3: 18, 4: 20, 5: 22}
+  frecuencia_hz: 700
+  formato: mp3                   # mp3 u ogg
+
+quiz:
+  tolerancia_mayusculas: true
+  tolerancia_espacios: true
+  incluir_articulo_the: true     # "The" cuenta como parte del título
+  numeros_arabigos: true         # se usan números arábigos, no romanos
+  ventana_horas: 6                # horas que dura abierto el quiz antes de cerrarse
+
+tono:
+  informal: true
+  usar_emojis: true
+
+mastodon:
+  # Rellenar con las credenciales de tu app de Mastodon
+  base_url: "https://tu-instancia.social"
+  max_caracteres: 500   # límite de caracteres por toot de tu instancia.
+                          # Cámbialo si tu instancia permite más (ej. 1000, 5000...)
