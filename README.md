@@ -10,6 +10,10 @@ necesidad de servidor ni Raspberry Pi — igual que tu bot del tiempo.
 - **18:00** → publica el **quiz** (audio en morse) y abre la ventana de respuestas
 - Cada **20 min** → revisa menciones y anota puntos a quien acierte
 
+Los niveles avanzan solos: cuando el bot ha enseñado todas las letras de un
+nivel, pasa al siguiente al día siguiente. El contenido del día se elige con
+los títulos aptos para el nivel actual y aún no usados.
+
 Todo el estado (títulos usados, ranking, quiz activo) se guarda en la
 carpeta `data/` dentro del propio repositorio.
 
@@ -60,10 +64,17 @@ tocar código:
 
 - `contenido.generos` — añade o quita géneros (usa los nombres en inglés
   tal como los usa TMDb: "Science Fiction", "Horror", "Comedy"...)
-- `contenido.palabras_clave` — para afinar el filtro "friki/culto"
+- `contenido.palabras_clave` — para afinar el filtro "friki/culto" (se
+  compara contra los keywords de TMDb de cada película)
+- `contenido.decadas` — lista de décadas a incluir, ej. `[1930, 1980, 2020]`
+  (filtrado por año de estreno de los resultados de TMDb)
 - `audio.wpm` — velocidad del pitido morse
 - `audio.formato` — `mp3` u `ogg`
 - `niveles` — qué letras se desbloquean en cada nivel y en qué orden
+- `quiz.ventana_horas` — cuántas horas dura abierto el quiz antes de caducar
+- `quiz.incluir_articulo_the` — si `"The"` cuenta como parte del título
+- `quiz.tolerancia_mayusculas` / `quiz.tolerancia_espacios` — cómo normalizar
+  las respuestas antes de comparar
 - `mastodon.max_caracteres` — límite de caracteres de tu instancia (por
   defecto 500). Si tu instancia permite más, súbelo aquí y el toot de la
   lección aprovechará el espacio extra automáticamente; si el límite es
@@ -101,5 +112,14 @@ morse-bot/
   sin rediseñar nada.
 - Los signos de puntuación en morse (¿ ! " etc.) no están soportados
   todavía — quedan como posible "nivel avanzado" futuro.
-- El filtrado por década (`contenido.decadas`) está preparado en la
-  configuración pero aún no implementado en la consulta a TMDb.
+- La comparación de respuestas es estricta (normalizada): la mención
+  debe coincidir, sin huecos, con el título de la lección (teniendo en
+  cuenta `quiz.incluir_articulo_the`). Antes se aceptaba por subcadena,
+  lo que provocaba falsos positivos.
+- El quiz solo acepta respuestas dentro de su ventana (`quiz.ventana_horas`
+  desde la publicación); al caducar se limpia la respuesta activa.
+- Los workflows comprueban la hora en `Europe/Madrid` antes de publicar,
+  para no depender del desfase fijo entre UTC y la zona horaria.
+- El bot hace `git push` del estado (`data/`) tras cada ejecución; los
+  workflows hacen `git pull --rebase` antes del push para evitar pérdidas
+  ante ejecuciones solapadas.
