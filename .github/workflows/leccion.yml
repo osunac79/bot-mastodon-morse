@@ -2,10 +2,14 @@ name: Lección de morse (mañana)
 
 on:
   schedule:
-    # 09:00 hora de Madrid = 07:00 UTC en horario de verano, 08:00 en invierno.
-    # Ajusta esta hora si notas desfase estacional.
+    # 09:00 hora de Madrid = 07:00 UTC en verano, 08:00 en invierno.
+    # El control horario se hace contra Europa/Madrid para no depender
+    # solo del desfase fijo entre UTC y Madrid.
     - cron: "0 7 * * *"
-  workflow_dispatch: {}   # te permite lanzarlo manualmente desde GitHub
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
 
 jobs:
   leccion:
@@ -20,7 +24,12 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
+      - name: Comprobar hora local (Europa/Madrid)
+        id: hora
+        run: echo "hora=$(TZ=Europe/Madrid date +%H)" >> "$GITHUB_OUTPUT"
+
       - name: Publicar lección
+        if: ${{ (steps.hora.outputs.hora >= 8 && steps.hora.outputs.hora < 10) }}
         env:
           MASTODON_ACCESS_TOKEN: ${{ secrets.MASTODON_ACCESS_TOKEN }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
@@ -32,4 +41,5 @@ jobs:
           git config user.email "morse-bot@users.noreply.github.com"
           git add data/
           git diff --staged --quiet || git commit -m "Actualizar estado tras la lección"
-          git push
+          git pull --rebase origin ${{ github.ref }}
+          git push origin HEAD:${{ github.ref }}
