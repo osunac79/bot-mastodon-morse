@@ -15,9 +15,9 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import estado, contenido, mastodon_client
-from src.niveles import nivel_requerido, letras_nuevas_de_hoy, letras_desbloqueadas
-from src.morse import texto_a_morse, normalizar_respuesta
+from src import estado, contenido, mastodon_client, niveles
+from src.niveles import nivel_requerido, letras_nuevas_de_hoy, siguiente_nivel
+from src.morse import texto_a_morse
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 
@@ -60,9 +60,9 @@ def _bloque_ranking_total(ranking_total: list) -> str:
 
 
 def formatear_toot_leccion(config: dict, nivel: int, letras_nuevas: list,
-                            titulo_ejemplo: str, morse_ejemplo: str,
-                            ranking_ayer: list, ranking_total: list,
-                            numero_leccion: int) -> str:
+                           titulo_ejemplo: str, morse_ejemplo: str,
+                           ranking_ayer: list, ranking_total: list,
+                           numero_leccion: int) -> str:
     """Construye el toot de la lección, recortando bloques opcionales
     (ranking total primero, ranking de ayer después) si el resultado
     supera el límite de caracteres configurado para la instancia.
@@ -100,37 +100,46 @@ def formatear_toot_leccion(config: dict, nivel: int, letras_nuevas: list,
         "",                                                # nada
     ]
 
+    toot = base + cierre
     for extra in combinaciones:
-        toot = base + extra + cierre
-        if len(toot) <= limite:
-            return toot
+        candidato = base + extra + cierre
+        if len(candidato) <= limite:
+            toot = candidato
+            break
 
     # Si ni siquiera el toot mínimo cabe (límite muy bajo o título muy largo),
-    # recortamos el propio cuerpo como último recurso.
-    toot_minimo = base + cierre
-    if len(toot_minimo) > limite:
-        exceso = len(toot_minimo) - limite + 1  # +1 para el "…"
-        base_recortada = base[:-exceso] + "…"
-        toot_minimo = base_recortada + cierre
-    return toot_minimo
+    # recortamos el propio cuerpo como último recurso sin pasarse del límite.
+    if len(toot) > limite:
+        exceso = len(toot) - limite
+        corte = max(0, len(base) - max(0, exceso))
+        toot = base[:corte] + cierre
+        if len(toot) > limite:
+            toot = toot[: max(0, limite - 1)] + "…"
+
+    return toot
 
 
 def main():
     config = cargar_config()
     est = estado.cargar_estado()
 
-    nivel_actual = est.get("nivel_actual", 1)
-    letras_nuevas = letras_nuevas_de_hoy(config, nivel_actual)
+    hoy = str(date.today())
+    if est.get("fecha_leccion") == hoy:
+        print("Ya hay una lección publicada hoy. No se repite.")
+        return
+
+    ranking = estado.cargar_ranking()
+    ranking_ayer = estado.top_ranking(ranking.get("hoy") or {}, n=3)
+    ranking_total = estado.top_ranking(ranking.get("total") or {}, n=3)
+
+    letras_enseñadas = estado.cargar_letras_enseñadas()
+    nivel_actual = siguiente_nivel(config, letras_enseñadas)
+    letras_nuevas = letras_nuevas_de_hoy(config, nivel_actual, letras_enseñadas)
 
     titulo = elegir_titulo_del_dia(config, nivel_actual)
     morse = texto_a_morse(titulo)
 
-    ranking = estado.cargar_ranking()
-    ranking_ayer_dict = estado.cerrar_dia_y_resetear_ranking_diario()
-    ranking_ayer = estado.top_ranking(ranking_ayer_dict, n=3)
-    ranking_total = estado.top_ranking(ranking["total"], n=3)
-
-    numero_leccion = est.get("numero_leccion", 0) + 1
+    numero_leccion = int(est.get("numero_leccion") or 0) + 1
 
     texto_toot = formatear_toot_leccion(
         config, nivel_actual, letras_nuevas, titulo, morse,
@@ -144,7 +153,7 @@ def main():
     est.update({
         "nivel_actual": nivel_actual,
         "numero_leccion": numero_leccion,
-        "fecha_leccion": str(date.today()),
+        "fecha_leccion": hoy,
         "titulo_leccion": titulo,
         "titulo_quiz_activo": None,       # se rellena en quiz.py
         "quiz_abierto_desde": None,
@@ -152,6 +161,11 @@ def main():
     })
     estado.guardar_estado(est)
     estado.marcar_como_usado(titulo)
+    estado.marcar_letras_enseñadas(letras_nuevas)
+
+    # Solo se resetea el ranking diario tras publicar con éxito
+    ranking["hoy"] = {}
+    estado.guardar_ranking(ranking)
 
     print(f"Lección publicada. Nivel {nivel_actual}. Título: {titulo}")
 
