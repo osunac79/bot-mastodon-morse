@@ -25,9 +25,11 @@ GENEROS_TMDB = {
 }
 
 
-def _tiene_nyñ_o_acentos(texto: str) -> bool:
-    if "Ñ" in texto.upper() or "ñ" in texto:
-        return True
+def _tiene_nyñ(texto: str) -> bool:
+    return "Ñ" in texto.upper() or "ñ" in texto
+
+
+def _tiene_acentos(texto: str) -> bool:
     # Si al quitar los acentos el texto cambia, es que tenía acentos/diacríticos
     normalizado = unicodedata.normalize("NFKD", texto)
     sin_acentos = "".join(c for c in normalizado if not unicodedata.combining(c))
@@ -41,7 +43,9 @@ def _tiene_puntuacion(texto: str) -> bool:
 
 def titulo_es_apto(titulo: str, config: dict) -> bool:
     cfg = config["contenido"]
-    if cfg.get("excluir_nyñ") and _tiene_nyñ_o_acentos(titulo):
+    if cfg.get("excluir_nyñ") and _tiene_nyñ(titulo):
+        return False
+    if cfg.get("excluir_acentos", True) and _tiene_acentos(titulo):
         return False
     if cfg.get("excluir_puntuacion") and _tiene_puntuacion(titulo):
         return False
@@ -49,6 +53,30 @@ def titulo_es_apto(titulo: str, config: dict) -> bool:
     if not (cfg["min_longitud"] <= longitud <= cfg["max_longitud"]):
         return False
     return es_valido(titulo)
+
+
+def _decadas_a_filtrar(config: dict) -> list:
+    return [int(d) for d in (config.get("contenido") or {}).get("decadas") or []]
+
+
+def _en_decada(anio: int, decadas: list) -> bool:
+    if not decadas:
+        return True
+    decima = (anio // 10) * 10
+    return decima in decadas
+
+
+def _nombres_keywords(peli: dict) -> set:
+    """Devuelve los nombres (lowercase) de los keywords de una película de TMDb."""
+    raw = peli.get("keywords") or {}
+    kws = raw.get("keyword") if isinstance(raw, dict) else raw
+    nombres = set()
+    for k in kws or []:
+        if isinstance(k, dict):
+            nombre = str(k.get("name") or "").strip().lower()
+            if nombre:
+                nombres.add(nombre)
+    return nombres
 
 
 def buscar_candidatos_tmdb(config: dict, paginas: int = 3) -> list:
@@ -75,25 +103,43 @@ def buscar_candidatos_tmdb(config: dict, paginas: int = 3) -> list:
             "page": pagina,
             "include_adult": "false",
         }
-        if cfg.get("decadas"):
-            # TMDb no filtra por década directamente; se podría iterar por rango de años.
-            # De momento dejamos preparado el hueco para futuras mejoras.
-            pass
-
         resp = requests.get(f"{TMDB_API_BASE}/discover/movie", params=params, timeout=15)
         resp.raise_for_status()
         resultados = resp.json().get("results", [])
 
         for peli in resultados:
             titulo = peli.get("title", "").strip()
-            if titulo and titulo_es_apto(titulo, config):
-                candidatos.append(titulo)
+            if not titulo or not titulo_es_apto(titulo, config):
+                continue
+            candidatos.append((titulo, peli))
 
-    # quitar duplicados manteniendo orden
+    # quitar duplicados manteniendo el primer título por cada uno
     vistos = set()
     unicos = []
-    for t in candidatos:
-        if t.upper() not in vistos:
-            vistos.add(t.upper())
-            unicos.append(t)
-    return unicos
+    for titulo, peli in candidatos:
+        clave = titulo.upper()
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        unicos.append((titulo, peli))
+
+    # filtrar por palabras clave ("friki/culto") y décadas, cuando estén configuradas
+    palabras_clave = [
+        str(p).strip().lower() for p in (cfg.get("palabras_clave") or []) if str(p).strip()
+    ]
+    decadas = _decadas_a_filtrar(config)
+
+    filtrados = []
+    for titulo, peli in unicos:
+        if palabras_clave and not any(p in _nombres_keywords(peli) for p in palabras_clave):
+            continue
+        release_date = str(peli.get("release_date") or "")
+        try:
+            anio = int(release_date[:4])
+        except ValueError:
+            anio = None
+        if anio is not None and not _en_decada(anio, decadas):
+            continue
+        filtrados.append(titulo)
+
+    return filtrados

@@ -60,11 +60,15 @@ def letras_usadas(texto: str) -> set:
     return {c.upper() for c in texto if c.upper() in MORSE_CODE}
 
 
-def normalizar_respuesta(texto: str) -> str:
+def normalizar_respuesta(texto: str, quitar_articulo: bool = False) -> str:
     """Normaliza una respuesta de usuario para comparar contra la solución:
-    mayúsculas -> minúsculas, espacios colapsados y recortados.
+    mayúsculas -> minúsculas, espacios colapsados y recortados, y opcionalmente
+    quita el artículo "The" si no debe contarse como parte del título.
     """
-    return " ".join(texto.strip().lower().split())
+    texto = texto.strip().lower()
+    if quitar_articulo and texto.startswith("the "):
+        texto = texto[len("the "):]
+    return " ".join(texto.split())
 
 
 if __name__ == "__main__":

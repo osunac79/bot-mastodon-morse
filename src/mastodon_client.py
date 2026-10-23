@@ -10,6 +10,13 @@ import os
 from mastodon import Mastodon
 
 
+def _get(obj, clave, defecto=None):
+    """Compatibilidad entre diccionarios y objetos de Mastodon.py."""
+    if isinstance(obj, dict):
+        return obj.get(clave, defecto)
+    return getattr(obj, clave, defecto)
+
+
 def conectar(config: dict) -> Mastodon:
     token = os.environ.get("MASTODON_ACCESS_TOKEN")
     if not token:
@@ -30,3 +37,32 @@ def leer_menciones_nuevas(mastodon: Mastodon, desde_id: str = None) -> list:
     """Devuelve las notificaciones de tipo 'mention' más recientes que desde_id."""
     notifs = mastodon.notifications(types=["mention"], since_id=desde_id)
     return list(reversed(notifs))  # de más antigua a más reciente
+
+
+def id_mencion(notif) -> str:
+    """Devuelve el ID de la notificación (no el del status) — se usa como cursor."""
+    status = _get(notif, "status")
+    return str(_get(notif, "id") or _get(status, "id") or "")
+
+
+def id_status(status) -> str:
+    """Devuelve el ID interno de un status (para responder sobre él)."""
+    return str(_get(status, "id") or "")
+
+
+def contenido_mencion(notif) -> str:
+    """Devuelve el contenido HTML del status asociado a la notificación."""
+    status = _get(notif, "status") or {}
+    return str(_get(status, "content") or "")
+
+
+def contenido_status(status) -> str:
+    """Devuelve el contenido HTML de un status (o de un objeto status-like)."""
+    return str(_get(status, "content") or "")
+
+
+def cuenta_mencion(notif) -> str:
+    """Devuelve el acct del usuario que hizo la mención."""
+    status = _get(notif, "status") or {}
+    cuenta = _get(status, "account") or {}
+    return str(_get(cuenta, "acct") or _get(cuenta, "username") or "")

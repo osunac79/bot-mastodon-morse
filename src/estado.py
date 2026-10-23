@@ -51,6 +51,8 @@ def cargar_estado() -> dict:
         "titulo_quiz_activo": None,
         "quiz_abierto_desde": None,
         "usuarios_respondieron_hoy": [],
+        "numero_leccion": 0,
+        "letras_enseñadas": [],
     })
 
 
@@ -70,8 +72,10 @@ def guardar_ranking(ranking: dict):
 
 def anotar_punto(usuario: str):
     ranking = cargar_ranking()
-    ranking["hoy"][usuario] = ranking["hoy"].get(usuario, 0) + 1
-    ranking["total"][usuario] = ranking["total"].get(usuario, 0) + 1
+    hoy = ranking.setdefault("hoy", {})
+    total = ranking.setdefault("total", {})
+    hoy[usuario] = hoy.get(usuario, 0) + 1
+    total[usuario] = total.get(usuario, 0) + 1
     guardar_ranking(ranking)
 
 
@@ -80,9 +84,15 @@ def top_ranking(ranking_parcial: dict, n: int = 3) -> list:
     return sorted(ranking_parcial.items(), key=lambda x: x[1], reverse=True)[:n]
 
 
-def cerrar_dia_y_resetear_ranking_diario():
-    ranking = cargar_ranking()
-    ranking_de_ayer = ranking["hoy"]
-    ranking["hoy"] = {}
-    guardar_ranking(ranking)
-    return ranking_de_ayer
+def cargar_letras_enseñadas() -> set:
+    """Devuelve el conjunto de letras que ya ha enseñado el bot (progresión)."""
+    return {l.upper() for l in cargar_estado().get("letras_enseñadas") or []}
+
+
+def marcar_letras_enseñadas(nuevas: list):
+    """Marca como aprendidas las letras nuevas y persiste el estado."""
+    est = cargar_estado()
+    conocidas = {l.upper() for l in est.get("letras_enseñadas") or []}
+    conocidas.update(l.upper() for l in nuevas)
+    est["letras_enseñadas"] = sorted(conocidas)
+    guardar_estado(est)
