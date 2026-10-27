@@ -3,23 +3,24 @@ leccion.py
 Se ejecuta por la mañana (cron en GitHub Actions).
 1. Calcula el nivel/letras nuevas de hoy.
 2. Elige un título de película apto para ese nivel.
-3. Publica el toot de la lección (con rankings de ayer si los hay).
-4. Guarda el título elegido como "respuesta del quiz de hoy".
+3. Publica un único toot combinado: lección + quiz (con audio) + ranking.
+4. Guarda el título elegido como "respuesta del quiz de hoy" y abre la ventana.
 """
 import sys
 import random
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime, timezone
 
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import estado, contenido, mastodon_client, niveles
+from src import estado, contenido, mastodon_client, audio
 from src.niveles import nivel_requerido, letras_nuevas_de_hoy, siguiente_nivel
 from src.morse import texto_a_morse
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
+AUDIO_TMP = Path("/tmp/leccion_morse")
 
 
 def cargar_config() -> dict:
@@ -59,50 +60,53 @@ def _bloque_ranking_total(ranking_total: list) -> str:
     return "\n\n📊 **RANKING TOTAL**\n" + "\n".join(lineas)
 
 
+def _bloque_quiz(config: dict) -> str:
+    return (
+        "\n\n🎧🔤 **¡QUIZ DE MORSE!** 🎧\n\n"
+        "Dale al play, descifra el título de la peli y respóndeme por aquí 👇\n\n"
+        "🎬 Es una peli que ya hemos visto en lecciones anteriores, ¡a ver esos oídos! 👂\n\n"
+        f"⏰ Tienes hasta dentro de {config['quiz']['ventana_horas']}h.\n\n"
+        "#AprendeMorse #Cine #Quiz"
+    )
+
+
 def formatear_toot_leccion(config: dict, nivel: int, letras_nuevas: list,
                            titulo_ejemplo: str, morse_ejemplo: str,
                            ranking_ayer: list, ranking_total: list,
                            numero_leccion: int) -> str:
-    """Construye el toot de la lección, recortando bloques opcionales
-    (ranking total primero, ranking de ayer después) si el resultado
-    supera el límite de caracteres configurado para la instancia.
-    """
+    """Construye el toot combinado (lección + quiz + ranking) con audio adjunto."""
     letras_txt = ", ".join(f"**{l}**" for l in letras_nuevas)
     tabla = "\n".join(
         f"{l}: {texto_a_morse(l)}" for l in letras_nuevas
     )
 
-    base = (
+    bloque_leccion = (
         f"🎬🔤 **LECCIÓN MORSE #{numero_leccion}** — ¡Buenas, frikis del cine! 👋\n\n"
         f"📖 Hoy le metemos caña a: {letras_txt}\n\n"
         f"```\n{tabla}\n```\n\n"
         f"🎯 Vamos a probarlo con lo que ya sabemos:\n"
         f"`{titulo_ejemplo}` → {morse_ejemplo}"
     )
-    cierre = (
-        f"\n\n⏰ El quiz cae esta tarde, ¡prepárate! 🍿👽\n\n"
-        f"#AprendeMorse #Cine #CienciaFicción"
-    )
+    bloque_quiz = _bloque_quiz(config)
+    base = bloque_leccion + bloque_quiz
 
     limite = config.get("mastodon", {}).get("max_caracteres", 500)
 
-    # Empezamos con todos los bloques y vamos quitando los opcionales,
-    # de menor a mayor prioridad, hasta que quepa en el límite.
+    # El ranking es opcional (se recorta si no cabe). Se prueba primero con
+    # el ranking completo (ayer + total) y se va quitando hasta encontrar hueco.
     bloques_opcionales = [
         _bloque_ranking_total(ranking_total),
         _bloque_ranking_ayer(ranking_ayer),
     ]
-    # orden de recorte: primero se quita el ranking total (índice 0),
-    # así que probamos combinaciones de más a menos contenido:
     combinaciones = [
         bloques_opcionales[1] + bloques_opcionales[0],  # ayer + total (todo)
         bloques_opcionales[1],                           # solo ayer
         "",                                                # nada
     ]
 
-    toot = base + cierre
+    toot = base
     for extra in combinaciones:
-        candidato = base + extra + cierre
+        candidato = base + extra
         if len(candidato) <= limite:
             toot = candidato
             break
@@ -112,7 +116,7 @@ def formatear_toot_leccion(config: dict, nivel: int, letras_nuevas: list,
     if len(toot) > limite:
         exceso = len(toot) - limite
         corte = max(0, len(base) - max(0, exceso))
-        toot = base[:corte] + cierre
+        toot = base[:corte]
         if len(toot) > limite:
             toot = toot[: max(0, limite - 1)] + "…"
 
@@ -146,17 +150,26 @@ def main():
         ranking_ayer, ranking_total, numero_leccion,
     )
 
-    mastodon = mastodon_client.conectar(config)
-    mastodon_client.publicar_toot(mastodon, texto_toot)
+    # Audio del quiz (el morse del título) adjunto al toot combinado
+    wpm_cfg = config["audio"]
+    wpm = wpm_cfg.get("wpm_por_nivel") or {}
+    wpm = wpm.get(nivel_actual, wpm_cfg.get("wpm", 15))
 
-    # Guardar estado para el quiz de la tarde
+    muestras = audio.morse_a_audio(morse, wpm=wpm, frecuencia_hz=wpm_cfg.get("frecuencia_hz", 700))
+    ruta_audio = AUDIO_TMP.with_suffix(f".{wpm_cfg.get('formato', 'mp3')}")
+    audio.guardar_audio(muestras, str(ruta_audio), formato=wpm_cfg.get("formato", "mp3"))
+
+    mastodon = mastodon_client.conectar(config)
+    mastodon_client.publicar_toot(mastodon, texto_toot, ruta_audio=str(ruta_audio))
+
+    # Guardar estado: el quiz queda abierto (ventana configurable, p.ej. 24h)
     est.update({
         "nivel_actual": nivel_actual,
         "numero_leccion": numero_leccion,
         "fecha_leccion": hoy,
         "titulo_leccion": titulo,
-        "titulo_quiz_activo": None,       # se rellena en quiz.py
-        "quiz_abierto_desde": None,
+        "titulo_quiz_activo": titulo,
+        "quiz_abierto_desde": datetime.now(timezone.utc).isoformat(),
         "usuarios_respondieron_hoy": [],
     })
     estado.guardar_estado(est)
@@ -167,7 +180,7 @@ def main():
     ranking["hoy"] = {}
     estado.guardar_ranking(ranking)
 
-    print(f"Lección publicada. Nivel {nivel_actual}. Título: {titulo}")
+    print(f"Lección publicada (con quiz integrado). Nivel {nivel_actual}. Título: {titulo}")
 
 
 if __name__ == "__main__":

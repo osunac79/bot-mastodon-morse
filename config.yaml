@@ -50,7 +50,7 @@ quiz:
   tolerancia_espacios: true
   incluir_articulo_the: true     # "The" cuenta como parte del título
   numeros_arabigos: true         # se usan números arábigos, no romanos
-  ventana_horas: 6                # horas que dura abierto el quiz antes de cerrarse
+  ventana_horas: 24                # horas que dura abierto el quiz antes de cerrarse
 
 tono:
   informal: true
